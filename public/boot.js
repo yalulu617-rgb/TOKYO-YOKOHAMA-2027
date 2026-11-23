@@ -107,10 +107,10 @@ $('signin').addEventListener('submit',async e=>{
   const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
   $('gateStatus').textContent='正在驗證…';
   try{
-    await lockTab();
     if(!offline){
       if(form.trust.checked&&password.length<10)throw Error('請先設定至少 10 字元的裝置解鎖密語。');
       const identity=await googleLogin();cloud.identify(identity);
+      await lockTab();
       const uid=identity.uid;
       let pkg;
       try{pkg=await cloud.seed()}catch(e){if(e.http===403||e.http===404)throw Error(await requestAccess(identity));throw e}
@@ -119,6 +119,7 @@ $('signin').addEventListener('submit',async e=>{
       if(session.uid!==uid)throw Error('帳號與離線副本不符。');
       session.seed=pkg;onlineLogin=true;
     }else{
+      await lockTab();
       vault=await openVault('family-vault',password,false);session=vault.value;onlineLogin=false;
     }
     form.password.value='';await mount();await store();if(onlineLogin)await memberPanel(session.uid);
