@@ -1,5 +1,5 @@
 const prefix='ajisai:'+self.registration.scope+':';
-const cacheName=prefix+'7d8b14bf280c58998b97';
+const cacheName=prefix+'5ba710ac2a99d86a65a7';
 const files=["access.css","art.js","boot.js","cloud.js","config.js","day-1.webp","day-2.webp","day-3.webp","day-4.webp","day-5.webp","day-6.webp","google.js","hero.webp","icon-192.png","icon-512.png","index.html","integrity.js","manifest.webmanifest","membership.js","style.css","vault.js"].map(file=>new URL(file,self.registration.scope).href);
 self.addEventListener('install',event=>{
   event.waitUntil(caches.open(cacheName).then(cache=>cache.addAll(files.map(url=>new Request(url,{cache:'reload'})))));
