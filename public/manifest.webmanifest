@@ -1,0 +1,27 @@
+{
+  "name": "紫陽花の旅｜2027 TOKYO × YOKOHAMA",
+  "short_name": "紫陽花の旅",
+  "description": "2027 東京橫濱六天五夜家族旅行行前規劃",
+  "lang": "zh-TW",
+  "dir": "ltr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#faf8ff",
+  "theme_color": "#7d65b2",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "id": "./index.html"
+}

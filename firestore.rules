@@ -1,0 +1,41 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function member() {
+      let family = get(/databases/$(database)/documents/access/family).data.uids;
+      return google() && family is list && family.size() <= 3 && request.auth.uid in family;
+    }
+    function google() {
+      return request.auth != null && request.auth.token.firebase.sign_in_provider == 'google.com'
+        && request.auth.token.email_verified == true;
+    }
+    function admin() {
+      return google() && get(/databases/$(database)/documents/access/family).data.admin == request.auth.uid;
+    }
+    match /requests/{uid} {
+      allow create, update: if google() && uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['email'])
+        && request.resource.data.email == request.auth.token.email;
+      allow read: if admin();
+    }
+    match /access/family {
+      allow get: if member();
+      allow update: if admin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uids'])
+        && request.resource.data.uids is list && request.resource.data.uids.size() <= 3
+        && request.resource.data.uids.size() == resource.data.uids.size() + 1
+        && request.resource.data.uids == resource.data.uids.concat([request.resource.data.uids[resource.data.uids.size()]])
+        && request.resource.data.uids.toSet().size() == request.resource.data.uids.size()
+        && exists(/databases/$(database)/documents/requests/$(request.resource.data.uids[resource.data.uids.size()]));
+    }
+    match /release/{version} { allow get: if request.auth != null && member(); }
+    match /fields/{id} {
+      allow read: if request.auth != null && member();
+      allow create, update: if request.auth != null && member()
+        && id.matches('^(done|hotelQuotes|budget|notes|tickets|edits|reservation|root)~[a-zA-Z0-9_-]{1,90}$')
+        && request.resource.data.keys().hasOnly(['value','author','modified'])
+        && request.resource.data.author == request.auth.uid
+        && request.resource.data.modified == request.time
+        && request.resource.data.value is string && request.resource.data.value.size() <= 12000;
+    }
+  }
+}
