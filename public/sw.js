@@ -1,5 +1,5 @@
 const prefix='ajisai:'+self.registration.scope+':';
-const cacheName=prefix+'72e821698601528c25ed';
+const cacheName=prefix+'0cfc09bb483386597116';
 const files=["access.css","art.js","boot.js","cloud.js","config.js","day-1.webp","day-2.webp","day-3.webp","day-4.webp","day-5.webp","day-6.webp","google.js","hero.webp","icon-192.png","icon-512.png","index.html","integrity.js","manifest.webmanifest","membership.js","style.css","vault.js"].map(file=>new URL(file,self.registration.scope).href);
 const authFiles=['firebase-app.js','firebase-auth.js'].map(file=>'https://www.gstatic.com/firebasejs/13.4.0/'+file);
 self.addEventListener('install',event=>{

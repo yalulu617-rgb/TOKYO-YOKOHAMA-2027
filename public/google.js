@@ -6,7 +6,7 @@ async function prepare(){
   const [app,authModule]=await Promise.all([import('https://www.gstatic.com/firebasejs/13.4.0/firebase-app.js'),import('https://www.gstatic.com/firebasejs/13.4.0/firebase-auth.js')]);
   appModule=app;
   sdk=authModule;
-  auth??=sdk.initializeAuth(app.getApps()[0]||app.initializeApp({apiKey,projectId,appId,authDomain}),{persistence:[...persistent(),sdk.inMemoryPersistence],popupRedirectResolver:sdk.browserPopupRedirectResolver});
+  auth??=sdk.initializeAuth(app.getApps()[0]||app.initializeApp({apiKey,projectId,appId,authDomain}),{persistence:[...persistent(),sdk.inMemoryPersistence]});
   await auth.authStateReady();
 }
 function warm(){
@@ -38,7 +38,7 @@ export async function googleLogin(remember=true,chooseAccount=false){
   if(chooseAccount)provider.setCustomParameters({prompt:'select_account'});
   provider.setCustomParameters({prompt:'select_account'});
   let result;
-  try{result=await sdk.signInWithPopup(auth,provider)}catch(e){
+  try{result=await sdk.signInWithPopup(auth,provider,sdk.browserPopupRedirectResolver)}catch(e){
     if(e.code==='auth/popup-blocked')throw Error('瀏覽器阻擋 Google 登入視窗。請允許這個網站的彈出式視窗，再按一次登入。');
     throw e;
   }
