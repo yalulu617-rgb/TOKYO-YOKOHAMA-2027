@@ -2,7 +2,7 @@ import {readdir,readFile} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
 import {fileURLToPath} from 'node:url';
 const dir=new URL('../public/',import.meta.url);
-const allowed=/^(index\.html|(?:art|google|membership|cloud|vault|device|outbox|expense|config|integrity|boot|sw)\.js|(?:access|style)\.css|(?:manifest\.webmanifest|release\.json)|(?:hero|day-[1-6])\.webp|icon-(?:192|512)\.png)$/;
+const allowed=/^(index\.html|(?:art|google|membership|cloud|vault|device|outbox|expense|config|integrity|boot|sw|view-state|version)\.js|(?:access|style)\.css|(?:manifest\.webmanifest|release\.json)|(?:hero|day-[1-6])\.webp|icon-(?:192|512)\.png)$/;
 for(const entry of await readdir(dir,{withFileTypes:true})){
   if(!entry.isFile()||!allowed.test(entry.name))throw Error('Unexpected public asset '+entry.name);
   if(/\.(js|css|html|webmanifest)$/.test(entry.name)){

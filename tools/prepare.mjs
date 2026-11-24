@@ -1,5 +1,6 @@
 import {readFile,writeFile} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 const root=new URL('../',import.meta.url);
 const read=p=>readFile(new URL(p,root),'utf8');
 const write=(p,s)=>writeFile(new URL(p,root),s);
@@ -13,7 +14,11 @@ const layout=(await read('private/source/index.html')).split('<body>')[1].split(
 const payload=JSON.stringify({renderer,layout,data});
 if(Buffer.byteLength(payload)>950000)throw Error('Release exceeds document limit');
 await write('private/release.json',JSON.stringify({fields:{payload:{stringValue:payload}}}));
-const existing=await read('public/integrity.js');
+let existing;
+try{
+  // Keep artifacts that shipped, not transient renderer hashes from local QA builds.
+  existing=execFileSync('git',['show','HEAD:public/integrity.js'],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','ignore']});
+}catch{existing=await read('public/integrity.js')}
 const current=hash(renderer);
 const previous=existing.match(/rendererHash="([a-f0-9]{64})"/)?.[1];
 const known=existing.match(/offlineRenderers=(\[[^\]]*\])/)?.[1]||'[]';

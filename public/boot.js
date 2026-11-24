@@ -1,5 +1,7 @@
 import {openDevice} from './device.js';
 import {createOutbox,retryDelay} from './outbox.js';
+import {viewStore} from './view-state.js';
+import {appVersion} from './version.js';
 import {googleLogin,restoreLogin,watchLogin,logout} from './google.js';
 import {memberPanel,requestAccess} from './membership.js';
 import * as cloud from './cloud.js';
@@ -20,7 +22,7 @@ function ensureAccess(uid){
 function invalidLogin(error){
   return error.http===401||['auth/user-token-expired','auth/user-disabled','auth/invalid-user-token','auth/user-not-found','auth/id-token-revoked'].includes(error.code);
 }
-let tabRelease,device,outbox,storageError='',savedGeneration=0,generation=0,retries=0,retryAt=0;
+let tabRelease,device,outbox,viewStorage,legacyRenderer=false,storageError='',savedGeneration=0,generation=0,retries=0,retryAt=0;
 let deviceWrites=Promise.resolve(),lastServerCheck=false;
 const count=()=>Object.keys(session?.pending||{}).length;
 const saved=()=>savedGeneration===generation;
@@ -39,6 +41,7 @@ function mergePending(incoming){
 }
 const samePending=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 async function setupOutbox(remember){
+  viewStorage=remember?viewStore(session.uid):null;
   if(remember){
     const result=await openDevice(session.uid);
     if(result.success){
@@ -53,6 +56,7 @@ async function setupOutbox(remember){
     }else storageError='無法開啟此帳號的加密裝置儲存。';
   }else storageError='共用裝置僅在目前頁面暫存。';
   session.acked??=new Set();
+  if(viewStorage)session.ui=viewStorage.read(session.ui);
   outbox=createOutbox({
     ...session,put:cloud.put,checkpoint,choose:(id,remote,local)=>confirm(
       '同一欄位有新版：'+id+'\n雲端：'+String(remote).slice(0,160)+'\n本機：'+String(local).slice(0,160)+'\n確定保留本機值？按取消採用雲端值。')
@@ -111,7 +115,9 @@ function schedule(ms=0,override=false){
   timer=setTimeout(sync,Math.max(ms,override?0:retryAt-Date.now()));
 }
 function browse(value,immediate=false){
-  session.ui=value;
+  // Capture a snapshot so a later render cannot mutate saved position data.
+  session.ui=structuredClone(value);
+  viewStorage?.save(session.ui);
   clearTimeout(uiTimer);
   if(immediate)void checkpoint();else uiTimer=setTimeout(checkpoint,160);
 }
@@ -180,13 +186,17 @@ async function mount(){
   const renderer=await digest(pkg.renderer);
   if((renderer!==rendererHash&&(onlineLogin||!offlineRenderers.includes(renderer)))||
      await digest(pkg.layout)!==layoutHash)throw Error('旅行版本不相符，請連線更新網站。');
+  legacyRenderer=renderer!==rendererHash;
+  $('appVersion').textContent='V'+appVersion+(legacyRenderer?' · 舊版離線行程':'');
+  // Restore the trip against its final layout; the sign-in gate otherwise adds height above it.
+  $('gate').hidden=true;$('account').hidden=false;
   $('original').innerHTML=pkg.layout;
   window.TRIP_DATA=structuredClone(pkg.data);
   window.travelBridge={snapshot,change,digest,view:()=>session.ui||{},browse};
   const src=URL.createObjectURL(new Blob([pkg.renderer],{type:'text/javascript'}));
   try{await import(src)}finally{URL.revokeObjectURL(src)}
   await import('./art.js');
-  $('gate').hidden=true;$('account').hidden=false;ready=true;
+  ready=true;
   await sync();
 }
 const form=$('signin');
@@ -258,7 +268,7 @@ async function openOnline(identity,apply=false,remember=true){
 }
 function gateError(error){
   $('gateStatus').textContent=explain(error);
-  if(!ready&&!locked){$('original').replaceChildren();tabRelease?.();device?.close();device=null;session=null;vault=null;onlineLogin=false}
+  if(!ready&&!locked){$('original').replaceChildren();$('account').hidden=true;$('gate').hidden=false;tabRelease?.();device?.close();device=null;session=null;vault=null;onlineLogin=false}
 }
 form.addEventListener('submit',async e=>{
   e.preventDefault();if(starting||busy||ready||locked)return;
@@ -299,7 +309,13 @@ async function reconnect(interactive=false){
     if(readFlag(deniedKey(session.uid))||invalidLogin(error)){await endSession('旅行權限或登入已失效，請重新登入。');return}
     status('尚未同步 · '+explain(error));
   }finally{busy=false}
-  if(onlineLogin)await sync();
+  if(onlineLogin){
+    await sync();
+    if(legacyRenderer&&ready&&!locked&&(!count()||saved())){
+      await checkpoint();
+      if(!count()||saved())location.reload();
+    }
+  }
 }
 $('retry').onclick=()=>{retryAt=0;void reconnect(true)};
 $('vaultForm').onsubmit=async event=>{
@@ -336,7 +352,13 @@ window.addEventListener('online',()=>{retryAt=0;if(ready)void reconnect();else i
 window.addEventListener('offline',sync);
 setInterval(()=>{if(!document.hidden)sync()},90000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()});
-if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{$('gateStatus').textContent='此瀏覽器無法啟用離線模式。'});
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js').then(registration=>{
+    document.addEventListener('visibilitychange',()=>{
+      if(!document.hidden&&navigator.onLine)void registration.update().catch(()=>{});
+    });
+  }).catch(()=>{$('gateStatus').textContent='此瀏覽器無法啟用離線模式。'});
+}
 async function resume(){
   gateBusy(true);
   try{

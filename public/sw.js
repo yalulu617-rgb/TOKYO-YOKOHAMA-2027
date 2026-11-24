@@ -1,16 +1,32 @@
 const prefix='ajisai:'+self.registration.scope+':';
-const cacheName=prefix+'372041f35d88131fc796';
-const files=["access.css","art.js","boot.js","cloud.js","config.js","day-1.webp","day-2.webp","day-3.webp","day-4.webp","day-5.webp","day-6.webp","device.js","expense.js","google.js","hero.webp","icon-192.png","icon-512.png","index.html","integrity.js","manifest.webmanifest","membership.js","outbox.js","style.css","vault.js","release.json"].map(file=>new URL(file,self.registration.scope).href);
+const cacheName=prefix+'5c522df400479fadbc8b';
+const files=["access.css","art.js","boot.js","cloud.js","config.js","day-1.webp","day-2.webp","day-3.webp","day-4.webp","day-5.webp","day-6.webp","device.js","expense.js","google.js","hero.webp","icon-192.png","icon-512.png","index.html","integrity.js","manifest.webmanifest","membership.js","outbox.js","style.css","vault.js","version.js","view-state.js","release.json"].map(file=>new URL(file,self.registration.scope).href);
 const authFiles=['firebase-app.js','firebase-auth.js'].map(file=>'https://www.gstatic.com/firebasejs/13.4.0/'+file);
+const entry=new URL('index.html',self.registration.scope).href;
+async function isCurrentShell(response){
+  if(!response.ok)return false;
+  const bytes=await crypto.subtle.digest('SHA-256',await response.clone().arrayBuffer());
+  const fingerprint=Array.from(new Uint8Array(bytes),value=>value.toString(16).padStart(2,'0')).join('');
+  return fingerprint==='830364100eb819b59b1bdec4d3cb6d57cc4e9b32bd2cc946ed255e28c71ebb4a';
+}
 self.addEventListener('install',event=>{
   event.waitUntil((async()=>{
     const cache=await caches.open(cacheName);
-    await cache.addAll(files.map(url=>new Request(url,{cache:'reload'})));
+    await Promise.all(files.map(async url=>{
+      const staging=new URL(url);
+      staging.searchParams.set('app-build','5c522df400479fadbc8b');
+      const response=await fetch(staging,{cache:'no-store'});
+      if(!response.ok||url===entry&&!await isCurrentShell(response))throw Error('Incomplete App release');
+      await cache.put(url,response);
+    }));
     // Authentication code only. Firebase session and API responses are never cached here.
     const controller=new AbortController();
     const timeout=setTimeout(()=>controller.abort(),4000);
     await Promise.allSettled(authFiles.map(async url=>cache.add(new Request(url,{mode:'cors',credentials:'omit',signal:controller.signal}))));
     clearTimeout(timeout);
+    // Activate the fully staged shell even if an installed PWA was suspended before it closed.
+    // Open pages keep their current renderer; the next navigation loads the new shell.
+    await self.skipWaiting();
   })());
 });
 self.addEventListener('activate',event=>{
@@ -22,7 +38,6 @@ self.addEventListener('activate',event=>{
 self.addEventListener('fetch',event=>{
   if(event.request.method!=='GET')return;
   const url=new URL(event.request.url);
-  const entry=new URL('index.html',self.registration.scope).href;
   const target=event.request.mode==='navigate' && [self.registration.scope,entry].includes(url.origin+url.pathname)?entry:event.request.url;
   if(event.request.mode==='navigate'&&target===entry){
     event.respondWith((async()=>{
@@ -31,11 +46,7 @@ self.addEventListener('fetch',event=>{
       const timeout=setTimeout(()=>controller.abort(),3000);
       try{
         const response=await fetch(entry,{cache:'no-cache',signal:controller.signal});
-        if(response.ok){
-          const bytes=await crypto.subtle.digest('SHA-256',await response.clone().arrayBuffer());
-          const fingerprint=Array.from(new Uint8Array(bytes),value=>value.toString(16).padStart(2,'0')).join('');
-          if(fingerprint==='10919a4d54e84aa1d72f551e2e3a0136b6a8dda7f436fec99cc6834415444db1')return response;
-        }
+        if(await isCurrentShell(response))return response;
       }catch{}finally{clearTimeout(timeout)}
       return (await cache.match(entry))||Response.error();
     })());
