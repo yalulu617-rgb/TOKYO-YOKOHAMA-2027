@@ -27,21 +27,22 @@ export async function seed(){
   if(await digest(payload)!==releaseId)throw Error('私人旅行資料校驗失敗，請聯絡管理員。');
   return JSON.parse(payload);
 }
-export const fieldCollection=id=>id.startsWith('planning~')?'planning':'fields';
+const extraHotel=/^planning~hotel-(mets-premier-sakuragicho|citadines-harbour-front|daiwa-roynet-yokohama-koen)-/;
+export const fieldCollection=id=>extraHotel.test(id)?'hotelPlanning':id.startsWith('planning~')?'planning':'fields';
 async function collectionChanges(collection,since){
   const structuredQuery={from:[{collectionId:collection}],orderBy:[{field:{fieldPath:'modified'},direction:'ASCENDING'}]};
   if(since)structuredQuery.where={fieldFilter:{field:{fieldPath:'modified'},op:'GREATER_THAN_OR_EQUAL',value:{timestampValue:since}}};
   const rows=await request(api()+':runQuery',{method:'POST',headers:await headers(),body:JSON.stringify({structuredQuery})});
-  return rows.filter(r=>r.document).map(({document:d})=>({id:(collection==='planning'?'planning~':'')+d.name.split('/').pop(),value:JSON.parse(d.fields.value.stringValue),revision:d.updateTime,time:d.fields.modified.timestampValue,author:d.fields.author?.stringValue}));
+  return rows.filter(r=>r.document).map(({document:d})=>({id:(collection==='fields'?'':'planning~')+d.name.split('/').pop(),value:JSON.parse(d.fields.value.stringValue),revision:d.updateTime,time:d.fields.modified.timestampValue,author:d.fields.author?.stringValue}));
 }
 export async function changes(cursor,planning=true){
   const current=typeof cursor==='string'?{fields:cursor}:cursor||{};
-  const collections=planning?['fields','planning']:['fields'];
+  const collections=planning?['fields','planning','hotelPlanning']:['fields'];
   return (await Promise.all(collections.map(collection=>collectionChanges(collection,current[collection])))).flat();
 }
 export async function put(id,entry){
   const collection=fieldCollection(id);
-  const name=root()+'/'+collection+'/'+(collection==='planning'?id.slice(9):id);
+  const name=root()+'/'+collection+'/'+(collection==='fields'?id:id.slice(9));
   const write={update:{name,fields:{value:{stringValue:JSON.stringify(entry.value)},author:{stringValue:auth.uid}}},updateTransforms:[{fieldPath:'modified',setToServerValue:'REQUEST_TIME'}],currentDocument:entry.base?{updateTime:entry.base}:{exists:false}};
   const result=await request(api()+':commit',{method:'POST',headers:await headers(),body:JSON.stringify({writes:[write]})});
   return result.writeResults[0].updateTime;

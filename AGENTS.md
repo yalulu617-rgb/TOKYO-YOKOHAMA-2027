@@ -34,3 +34,11 @@
 本機 LUNA-CREATIVE-SKILLS Registry 1.2.1。web-app-starter 1.2.0 用於共用行動導覽、比較卡片及欄位；pwa-offline-sync 1.1.1 延用既有自動同步、加密佇列與瀏覽狀態；release-verification 1.1.1 要求封存基準、獨立模擬器及正式唯讀核對；travel-data-schema 1.1.0 保留六天、54 個原節點和六間飯店的原始內容及 ID；travel-app-adapter 1.1.1 將推薦排序和原始資料順序分離。
 
 新增族人共用欄位存於 /planning，保留 /fields 的路徑、值及規則。舊版回滾可重新發布 v2.1.1 的公開成品，原私人 release 與既有雲端欄位繼續保留。V2.2.0 再發布後，新增規劃欄位會重新顯示。規劃來源與舊資料均經 prepare 封入私人 release。
+
+## V2.2.1 住宿評估
+
+住宿名單原始 ID 1–6 與舊 /planning 欄位保持相容。新增固定 ID mets-premier-sakuragicho、citadines-harbour-front 使用 /hotelPlanning，規則逐一允許收藏、優先、手填報價及其附加欄位，舊版只查既有集合。發布順序為 Firestore 規則、私人 release、公開 PWA。
+
+指定日期房價與空房由可核實的正式方案確認。既有手填報價留作比較紀錄。評論採個案摘要和原始平台引用，來源不完整保留待核對，暫定權重不換算精確分數。
+
+最終發布加入第三個固定 ID daiwa-roynet-yokohama-koen。兩間手選優先住宿的截圖報價隨私人 release 發布，和個人手填報價、庫存及訂房狀態分開。全站手機驗收須檢視各頁截圖，住宿名稱須佔完整標題寬度。發布後使用者 S25 實機驗收獨立記錄。

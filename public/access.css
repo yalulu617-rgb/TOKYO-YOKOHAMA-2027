@@ -46,3 +46,38 @@ html:has(.itinerary-tabs){overflow-anchor:none}
   .bottom-nav button span:first-child { font-size: 1.15rem; }
   .day-tabs { scrollbar-width: thin; overscroll-behavior-inline: contain; }
 }
+
+.stay-card { min-width: 0; overflow-wrap: anywhere; }
+.stay-card h3 { margin: 0 0 .25rem; }
+.stay-card .hotel-body { display: grid; gap: .65rem; }
+.stay-card details { border-top: 1px solid var(--hydrangea); }
+.stay-card summary { cursor: pointer; padding: .5rem 0; align-content: center; }
+.stay-facts { display: grid; gap: .45rem; margin: 0; }
+.stay-facts div { display: grid; grid-template-columns: 5em minmax(0, 1fr); gap: .25rem; }
+.stay-facts dt { font-weight: 700; }
+.stay-facts dd, .stay-risk { margin: 0; }
+.stay-risk { background: var(--paper); padding: .55rem .7rem; border-radius: .65rem; }
+.recent-reviews article { border-top: 1px solid var(--hydrangea); padding-block: .45rem; }
+@media (max-width: 480px) { .stay-card .hotel-body { padding: .8rem; } }
+
+.priority-summary { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,19rem),1fr)); gap: .8rem; margin-block: .65rem; }
+.priority-summary .card { border-top: 3px solid var(--hydrangea); }
+.priority-summary h3, .compare-column h3 { overflow-wrap: break-word; margin-block: .3rem; }
+.compare-column { background: var(--paper); border-radius: 1rem; padding: .9rem; }
+.stay-card, .stay-card h3 { word-break: normal; overflow-wrap: break-word; }
+.stay-card .hotel-top { grid-template-columns: minmax(0, 1fr); gap: .35rem; }
+.stay-card .hotel-top > div { min-width: 0; }
+.stay-card .hotel-top h3 { line-height: 1.35; font-size: clamp(1.08rem,4vw,1.3rem); }
+.direct-compare { margin-block: 1rem; }
+.direct-compare summary { min-height: 44px; cursor: pointer; align-content: center; }
+@media (max-width: 767px) {
+  #main { line-height: 1.55; }
+  #main .panel-sub { line-height: 1.5; }
+  #main .stay-card h3 { overflow-wrap: break-word; }
+  #main .stay-facts { font-size: .96rem; }
+  #main .priority-summary .card { padding: .85rem 1rem; }
+  #main .priority-summary p { margin: .35rem 0; }
+  #main .box-title { align-items: flex-start; }
+  #main .quick { min-height: 96px; }
+  #main .card, #main .ticket-card, #main .deadline-card { min-width: 0; }
+}

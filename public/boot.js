@@ -72,7 +72,7 @@ function lockTab(){
   });
 }
 function snapshot(){return Object.fromEntries(Object.entries({...session.fields,...session.pending})
-  .filter(([id])=>!legacyRenderer||cloud.fieldCollection(id)!=='planning').map(([id,x])=>[id,x.value]))}
+  .filter(([id])=>!legacyRenderer||cloud.fieldCollection(id)==='fields').map(([id,x])=>[id,x.value]))}
 function store(){
   if(!vault)return Promise.resolve();
   const copy=structuredClone(session);

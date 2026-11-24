@@ -1,7 +1,7 @@
 const prefix='ajisai.2027.view.v1.';
 const pages=['home','days','food','hotels','tickets','tasks','budget'];
 const dayPattern=/^D[1-6]$/;
-const detailPattern=/^(?:edit|info)-stop-\d{1,3}$/;
+const detailPattern=/^(?:(?:edit|info)-stop-\d{1,3}|stay-compare|stay-(?:edit|reviews|quote)-(?:[1-6]|mets-premier-sakuragicho|citadines-harbour-front|daiwa-roynet-yokohama-koen))$/;
 const distance=value=>Number.isFinite(value)?Math.max(0,Math.min(Math.round(value),100000)):0;
 function safe(value={}){
   const positions={};
