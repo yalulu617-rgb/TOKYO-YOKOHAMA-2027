@@ -24,3 +24,4 @@
 !/tools/check-public.mjs
 !/tools/prepare.mjs
 !/tools/test-outbox.mjs
+!/tools/test-view-state.mjs
