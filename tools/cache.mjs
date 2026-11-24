@@ -1,11 +1,16 @@
 import {readFile,writeFile,readdir} from 'node:fs/promises';
 import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
 const dir=new URL('../public/',import.meta.url);
-const files=(await readdir(dir)).filter(x=>x!=='sw.js').sort();
+const files=(await readdir(dir)).filter(x=>x!=='sw.js'&&x!=='release.json').sort();
 const hash=createHash('sha256');
 hash.update(await readFile(new URL(import.meta.url)));
 for(const file of files){hash.update(file);hash.update(await readFile(new URL(file,dir)))}
 const version=hash.digest('hex').slice(0,20);
+const gitCommit=process.env.GITHUB_SHA||execFileSync('git',['rev-parse','HEAD'],{cwd:new URL('../',dir),encoding:'utf8'}).trim();
+const entryHash=createHash('sha256').update(await readFile(new URL('index.html',dir))).digest('hex');
+await writeFile(new URL('release.json',dir),JSON.stringify({appVersion:'2.1.0',gitCommit,cacheVersion:version})+'\n');
+files.push('release.json');
 const source=`const prefix='ajisai:'+self.registration.scope+':';
 const cacheName=prefix+'${version}';
 const files=${JSON.stringify(files)}.map(file=>new URL(file,self.registration.scope).href);
@@ -32,6 +37,23 @@ self.addEventListener('fetch',event=>{
   const url=new URL(event.request.url);
   const entry=new URL('index.html',self.registration.scope).href;
   const target=event.request.mode==='navigate' && [self.registration.scope,entry].includes(url.origin+url.pathname)?entry:event.request.url;
+  if(event.request.mode==='navigate'&&target===entry){
+    event.respondWith((async()=>{
+      const cache=await caches.open(cacheName);
+      const controller=new AbortController();
+      const timeout=setTimeout(()=>controller.abort(),3000);
+      try{
+        const response=await fetch(entry,{cache:'no-cache',signal:controller.signal});
+        if(response.ok){
+          const bytes=await crypto.subtle.digest('SHA-256',await response.clone().arrayBuffer());
+          const fingerprint=Array.from(new Uint8Array(bytes),value=>value.toString(16).padStart(2,'0')).join('');
+          if(fingerprint==='${entryHash}')return response;
+        }
+      }catch{}finally{clearTimeout(timeout)}
+      return (await cache.match(entry))||Response.error();
+    })());
+    return;
+  }
   if(authFiles.includes(target)){
     event.respondWith((async()=>{
       const cache=await caches.open(cacheName);

@@ -6,6 +6,7 @@
 !/firebase.json
 !/firestore.rules
 !/README.md
+!/AGENTS.md
 !/tools/
 !/public/
 /public/*
@@ -22,3 +23,4 @@
 !/tools/cache.mjs
 !/tools/check-public.mjs
 !/tools/prepare.mjs
+!/tools/test-outbox.mjs

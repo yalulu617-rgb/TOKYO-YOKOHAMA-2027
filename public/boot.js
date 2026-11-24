@@ -1,8 +1,10 @@
+import {openDevice} from './device.js';
+import {createOutbox,retryDelay} from './outbox.js';
 import {googleLogin,restoreLogin,watchLogin,logout} from './google.js';
 import {memberPanel,requestAccess} from './membership.js';
 import * as cloud from './cloud.js';
 import {openVault,forgetVault,hasVault,digest} from './vault.js';
-import {rendererHash,layoutHash} from './integrity.js';
+import {rendererHash,layoutHash,offlineRenderers} from './integrity.js';
 const $=id=>document.getElementById(id);
 const status=text=>$('syncStatus').textContent=text;
 let session,vault,onlineLogin=false,busy=false,persist=Promise.resolve(),ready=false,locked=false,starting=false,unwatch,chooseAccount=false;
@@ -18,7 +20,44 @@ function ensureAccess(uid){
 function invalidLogin(error){
   return error.http===401||['auth/user-token-expired','auth/user-disabled','auth/invalid-user-token','auth/user-not-found','auth/id-token-revoked'].includes(error.code);
 }
-let tabRelease;
+let tabRelease,device,outbox,storageError='',savedGeneration=0,generation=0,retries=0,retryAt=0;
+let deviceWrites=Promise.resolve(),lastServerCheck=false;
+const count=()=>Object.keys(session?.pending||{}).length;
+const saved=()=>savedGeneration===generation;
+function pendingStatus(){
+  if(!count())return;
+  if(!saved()&&storageError){status('尚未安全儲存 · '+storageError+' 請保持頁面開啟至雲端確認。');return}
+  if(!saved()){status('儲存中…');return}
+  status(navigator.onLine?'已儲存在裝置，等待同步':'離線 · 已儲存在裝置，恢復連線後自動同步');
+}
+function mergePending(incoming){
+  for(const [id,entry] of Object.entries(incoming||{})){
+    const existing=session.pending[id];
+    if(!existing||samePending(existing,entry))session.pending[id]=entry;
+    else if(confirm('發現同欄位的兩份本機修改：'+id+'。確定採用較早的離線副本？'))session.pending[id]=entry;
+  }
+}
+const samePending=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+async function setupOutbox(remember){
+  if(remember){
+    const result=await openDevice(session.uid);
+    if(result.success){
+      device=result.data;
+      if(device.value?.ui)session.ui=device.value.ui;
+      // A newer device journal takes precedence over the previous passphrase snapshot.
+      if(device.value?.pending){
+        for(const [id,entry] of Object.entries(device.value.pending))session.pending[id]=entry;
+        for(const id of device.value.acked||[])if(!device.value.pending[id])delete session.pending[id];
+      }
+      session.acked=new Set(device.value?.acked||[]);
+    }else storageError='無法開啟此帳號的加密裝置儲存。';
+  }else storageError='共用裝置僅在目前頁面暫存。';
+  session.acked??=new Set();
+  outbox=createOutbox({
+    ...session,put:cloud.put,checkpoint,choose:(id,remote,local)=>confirm(
+      '同一欄位有新版：'+id+'\n雲端：'+String(remote).slice(0,160)+'\n本機：'+String(local).slice(0,160)+'\n確定保留本機值？按取消採用雲端值。')
+  });
+}
 function lockTab(){
   return new Promise((resolve,reject)=>{
     if(!navigator.locks)return reject(Error('請使用支援安全分頁鎖定的新版瀏覽器。'));
@@ -37,17 +76,48 @@ function store(){
   write.catch(()=>status('本機加密儲存失敗，請立即匯出 JSON 備份。'));
   return write;
 }
-function change(id,value){
-  if(!ready || locked || !window.validField(id,value))throw Error('無法寫入旅行欄位');
-  const previous=session.pending[id];
-  session.pending[id]={value,base:previous?previous.base:session.fields[id]?.revision||null};
-  status('變更等待同步');store();schedule();
+function checkpoint(){
+  const version=++generation;
+  const current=structuredClone({pending:session.pending,ui:session.ui||{},acked:[...session.acked]});
+  const target=device,protect=vault;
+  const write=deviceWrites.catch(()=>{}).then(async()=>{
+    if(!target&&!protect)return;
+    let ok=false;
+    try{
+      if(target){
+        const result=await target.save(current);
+        if(!result.success)storageError='裝置加密儲存失敗。';
+        else ok=true;
+      }
+      if(protect)try{await store();ok=true}catch{if(!ok)storageError='離線副本無法安全儲存。'}
+      if(ok){savedGeneration=version;storageError=''}
+    }finally{if(!busy&&count())pendingStatus()}
+  });
+  deviceWrites=write;
+  return write;
 }
-let timer;
-function schedule(){clearTimeout(timer);timer=setTimeout(sync,700)}
+function change(id,value){
+  if(!ready||locked||!window.validField(id,value))throw Error('無法寫入旅行欄位');
+  if(!outbox.change(id,value))return;
+  session.acked.delete(id);
+  pendingStatus();void checkpoint();
+  pendingStatus();
+  schedule(350);
+}
+let timer,uiTimer;
+function schedule(ms=0,override=false){
+  if(!ready||locked||!navigator.onLine)return;
+  clearTimeout(timer);
+  timer=setTimeout(sync,Math.max(ms,override?0:retryAt-Date.now()));
+}
+function browse(value,immediate=false){
+  session.ui=value;
+  clearTimeout(uiTimer);
+  if(immediate)void checkpoint();else uiTimer=setTimeout(checkpoint,160);
+}
 function showRemote(){
   if(!window.applyTravelFields)return;
-  if(document.activeElement?.matches('input:not([type=checkbox]),textarea')){
+  if(document.activeElement?.matches('input:not([type=checkbox]):not([type=search]),textarea')){
     document.activeElement.addEventListener('blur',()=>setTimeout(showRemote,0),{once:true});return;
   }
   window.applyTravelFields(snapshot());
@@ -61,55 +131,58 @@ function explain(error){
 }
 async function sync(){
   if(!ready||locked||busy)return;
-  if(!navigator.onLine){status('離線中 · '+Object.keys(session.pending).length+' 項待同步');return}
+  if(!navigator.onLine){if(count())pendingStatus();else status('離線 · 恢復網路後自動同步');return}
   if(!onlineLogin){await reconnect();return}
-  busy=true;status('同步中…');
+  if(Date.now()<retryAt){schedule();return}
+  busy=true;
+  if(count()||!lastServerCheck)status('同步中…');
+  let drainMore=false;
+  const initialPending=new Set(Object.keys(session.pending));
   try{
     const rows=await cloud.changes(session.cursor);
+    let changed=false;
     for(const row of rows){
       if(!window.validField(row.id,row.value))throw Error('雲端欄位異常，請核對備份。');
-      session.fields[row.id]=row;session.cursor=row.time;
-    }
-    let redraw=rows.length>0;
-    for(const [id,entry] of Object.entries({...session.pending})){
-      if(session.pending[id]!==entry)continue;
-      const remote=session.fields[id];
-      if(remote && remote.revision!==entry.base){
-        if(remote.value!==entry.value){
-          if(!confirm('同一欄位有新版：'+id+'\n雲端：'+String(remote.value).slice(0,160)+'\n本機：'+String(entry.value).slice(0,160)+'\n確定保留本機值？按取消採用雲端值。')){
-            delete session.pending[id];redraw=true;continue;
-          }
-          entry.base=remote.revision;
-        }else{delete session.pending[id];continue}
+      if(session.fields[row.id]?.revision!==row.revision){
+        session.fields[row.id]=row;changed=true;
       }
-      const sent=structuredClone(entry);
-      const revision=await cloud.put(id,sent);
-      session.fields[id]={value:sent.value,revision,time:revision};
-      if(session.pending[id]===entry)delete session.pending[id];
-      else if(session.pending[id])session.pending[id].base=revision;
+      session.cursor=row.time;
     }
-    await store();
-    if(redraw)showRemote();
-    const pending=Object.keys(session.pending).length;
-    const latest=Object.values(session.fields).map(x=>x.time).filter(Boolean).sort().pop();
-    status(pending?'等待同步 '+pending+' 項':'已同步'+(latest?' · 最後修改 '+new Date(latest).toLocaleString('zh-TW',{timeZone:'Asia/Tokyo'})+' JST':''));
-    if(pending)schedule();
+    await outbox.flush();
+    for(const id of initialPending)if(!session.pending[id])session.acked.add(id);
+    if(initialPending.size)await checkpoint();
+    else if(vault&&changed)await store();
+    if(changed||initialPending.size)showRemote();
+    retries=retryAt=0;lastServerCheck=true;drainMore=true;
+    if(count())pendingStatus();
+    else status('已同步至雲端');
   }catch(error){
     if(error.http===403||invalidLogin(error)){
       if(error.http===403)markDenied(session.uid,true);
       await endSession('旅行權限或登入已失效，請重新登入。');
       return;
     }
-    status('尚未同步 · '+explain(error));
-    if(error.http===409||error.status==='FAILED_PRECONDITION')schedule();
-  }finally{busy=false}
+    const delay=retryDelay(error,retries);
+    if(delay!==null){
+      retries=Math.min(retries+1,8);retryAt=Date.now()+delay;
+      status('同步暫時異常 · '+(count()?(saved()?'變更已加密保存，':'變更尚未安全儲存，'):'')+'將自動重試');
+      schedule();
+    }else status('同步異常 · '+explain(error)+(count()&&!saved()?' · 尚未安全儲存':'')+' · 可使用手動同步重試');
+    showRemote();
+  }finally{
+    busy=false;
+    // Edits can arrive after a flush captured its batch or while its last write is in flight.
+    if(count()&&drainMore)schedule(100);
+  }
 }
 async function mount(){
   const pkg=session.seed;
-  if(await digest(pkg.renderer)!==rendererHash || await digest(pkg.layout)!==layoutHash)throw Error('旅行版本不相符，請連線更新網站。');
+  const renderer=await digest(pkg.renderer);
+  if((renderer!==rendererHash&&(onlineLogin||!offlineRenderers.includes(renderer)))||
+     await digest(pkg.layout)!==layoutHash)throw Error('旅行版本不相符，請連線更新網站。');
   $('original').innerHTML=pkg.layout;
   window.TRIP_DATA=structuredClone(pkg.data);
-  window.travelBridge={snapshot,change,digest};
+  window.travelBridge={snapshot,change,digest,view:()=>session.ui||{},browse};
   const src=URL.createObjectURL(new Blob([pkg.renderer],{type:'text/javascript'}));
   try{await import(src)}finally{URL.revokeObjectURL(src)}
   await import('./art.js');
@@ -126,8 +199,13 @@ async function endSession(message,clearVault=false,signOut=true){
   locked=true;ready=false;unwatch?.();clearTimeout(timer);
   $('original').replaceChildren();$('account').hidden=true;$('gate').hidden=false;
   window.TRIP_DATA=null;window.travelBridge=null;
-  await persist.catch(()=>{});
-  if(clearVault)forgetVault();
+  clearTimeout(uiTimer);
+  await deviceWrites.catch(()=>{});await persist.catch(()=>{});
+  if(clearVault){
+    forgetVault();
+    try{await device?.clear()}catch{}
+  }
+  device?.close();
   if(signOut){
     try{localStorage.setItem(logoutKey,'1')}catch{}
     try{
@@ -166,11 +244,13 @@ async function authorizedPackage(identity,apply=false){
     throw error;
   }
 }
-async function openOnline(identity,apply=false){
+async function openOnline(identity,apply=false,remember=true){
   await lockTab();
   const seed=await authorizedPackage(identity,apply);
   session={uid:identity.uid,fields:{},pending:{},cursor:null,seed};
   onlineLogin=true;
+  $('vaultSettings').hidden=!remember;
+  await setupOutbox(remember);
   await mount();
   if(!ready)return;
   monitorLogin(identity.uid);
@@ -178,7 +258,7 @@ async function openOnline(identity,apply=false){
 }
 function gateError(error){
   $('gateStatus').textContent=explain(error);
-  if(!ready&&!locked){$('original').replaceChildren();tabRelease?.();session=null;vault=null;onlineLogin=false}
+  if(!ready&&!locked){$('original').replaceChildren();tabRelease?.();device?.close();device=null;session=null;vault=null;onlineLogin=false}
 }
 form.addEventListener('submit',async e=>{
   e.preventDefault();if(starting||busy||ready||locked)return;
@@ -190,8 +270,9 @@ form.addEventListener('submit',async e=>{
       await lockTab();
       vault=await openVault('family-vault',form.password.value,false);session=vault.value;
       ensureAccess(session.uid);
+      await setupOutbox(true);
       await mount();
-    }else await openOnline(await googleLogin(form.remember.checked,chooseAccount),true);
+    }else await openOnline(await googleLogin(form.remember.checked,chooseAccount),true,form.remember.checked);
   }catch(error){gateError(error)}
   finally{form.password.value='';gateBusy(false)}
 });
@@ -220,7 +301,7 @@ async function reconnect(interactive=false){
   }finally{busy=false}
   if(onlineLogin)await sync();
 }
-$('retry').onclick=()=>reconnect(true);
+$('retry').onclick=()=>{retryAt=0;void reconnect(true)};
 $('vaultForm').onsubmit=async event=>{
   event.preventDefault();
   if(!ready||locked||busy||!onlineLogin||vault)return;
@@ -233,16 +314,13 @@ $('vaultForm').onsubmit=async event=>{
       for(const [id,entry] of Object.entries(unlocked.value.pending)){
         if(!window.validField(id,entry.value))throw Error('離線副本的欄位需要先核對。');
       }
-      for(const [id,entry] of Object.entries(unlocked.value.pending)){
-        if(session.pending[id] && session.pending[id].value!==entry.value &&
-           !confirm('離線副本與目前頁面都有尚未同步的修改：'+id+'。確定保留離線副本的修改？'))continue;
-        session.pending[id]=entry;
-      }
+      const pending=Object.fromEntries(Object.entries(unlocked.value.pending).filter(([id])=>!session.acked.has(id)));
+      mergePending(pending);
       // Fetch from the start so recovered edits still use their original conflict bases.
       session.cursor=null;
     }
     vault=unlocked;
-    await store();showRemote();
+    await checkpoint();showRemote();
     $('vaultStatus').textContent='加密離線副本已解鎖。';
   }catch(error){$('vaultStatus').textContent=explain(error)}
   finally{input.value='';busy=false}
@@ -253,8 +331,8 @@ $('signout').onclick=async()=>{
   if((Object.keys(session.pending).length||(!vault&&hasVault()))&&!confirm('本機可能有尚未同步的修改。登出將清除加密離線副本。若需先解鎖、同步或匯出備份，請按取消。'))return;
   await endSession('',true);
 };
-window.addEventListener('beforeunload',e=>{if(ready&&!vault&&Object.keys(session.pending).length){e.preventDefault();e.returnValue=''}});
-window.addEventListener('online',()=>{if(ready)void reconnect();else if(!starting&&!locked)void resume()});
+window.addEventListener('beforeunload',e=>{if(ready&&count()&&!saved()){e.preventDefault();e.returnValue=''}});
+window.addEventListener('online',()=>{retryAt=0;if(ready)void reconnect();else if(!starting&&!locked)void resume()});
 window.addEventListener('offline',sync);
 setInterval(()=>{if(!document.hidden)sync()},90000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()});

@@ -5,10 +5,19 @@ let auth;
 const root=()=> 'projects/'+projectId+'/databases/(default)/documents';
 const api=()=> 'https://firestore.googleapis.com/v1/'+root();
 async function request(url, options) {
-  const res=await fetch(url,{...options,cache:'no-store',referrerPolicy:'no-referrer',signal:AbortSignal.timeout(18000)});
-  const body=await res.json();
-  if(!res.ok){const e=Error(body.error?.message||res.statusText);e.status=body.error?.status||res.status;e.http=res.status;throw e}
-  return body;
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),18000);
+  try{
+    const res=await fetch(url,{...options,cache:'no-store',referrerPolicy:'no-referrer',signal:controller.signal});
+    if(!res.ok){
+      const body=await res.json().catch(()=>null);
+      const error=Error(body?.error?.message||res.statusText);
+      error.status=body?.error?.status||res.status;
+      error.http=res.status;
+      throw error;
+    }
+    return await res.json();
+  }finally{clearTimeout(timeout)}
 }
 export function identify(identity){auth=identity}
 async function headers(){return {Authorization:'Bearer '+await auth.getToken(),'Content-Type':'application/json'}}
@@ -22,7 +31,7 @@ export async function changes(since){
   const structuredQuery={from:[{collectionId:'fields'}],orderBy:[{field:{fieldPath:'modified'},direction:'ASCENDING'}]};
   if(since)structuredQuery.where={fieldFilter:{field:{fieldPath:'modified'},op:'GREATER_THAN_OR_EQUAL',value:{timestampValue:since}}};
   const rows=await request(api()+':runQuery',{method:'POST',headers:await headers(),body:JSON.stringify({structuredQuery})});
-  return rows.filter(r=>r.document).map(({document:d})=>({id:d.name.split('/').pop(),value:JSON.parse(d.fields.value.stringValue),revision:d.updateTime,time:d.fields.modified.timestampValue}));
+  return rows.filter(r=>r.document).map(({document:d})=>({id:d.name.split('/').pop(),value:JSON.parse(d.fields.value.stringValue),revision:d.updateTime,time:d.fields.modified.timestampValue,author:d.fields.author?.stringValue}));
 }
 export async function put(id,entry){
   const name=root()+'/fields/'+id;

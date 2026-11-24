@@ -1,3 +1,4 @@
-export const rendererHash="2e176654b3eee5b34bf345ec78eacf764d693754b8cbeef39c7fc97cccdb270f";
+export const rendererHash="dee8e17ea41abc14890a2cd05a85aa3a475bae5113aecf9b9d9265c642629d15";
 export const layoutHash="771a6237c4c969ea29f3d66b22cd8cbcd1a30d21ef361e9dca7f6551f020e603";
-export const releaseId="af35709dc943f23bd81808e4c957973afc12c10cfae3d5fe4264dff14a79a88b";
+export const releaseId="d928b3027cbe4174c4eff322ec8d46f7c786b746676a44e2b417be5a795d2704";
+export const offlineRenderers=["2e176654b3eee5b34bf345ec78eacf764d693754b8cbeef39c7fc97cccdb270f"];
