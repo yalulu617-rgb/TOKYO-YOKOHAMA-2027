@@ -28,6 +28,24 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/requests/$(request.resource.data.uids[resource.data.uids.size()]));
     }
     match /release/{version} { allow get: if request.auth != null && member(); }
+    match /planning/{id} {
+      function validEntry() {
+        let value = request.resource.data.value;
+        return (id.matches('^hotel-[1-6]-(favorite|priority)$') && value.matches('^(true|false)$'))
+          || (id.matches('^(flight|lodging|ticket-[1-8]|special-(6|7))-(status|currency)$')
+            && ((id.matches('.*-status') && value.matches('^"(unannounced|todo|reserved|paid|issued|unknown)"$'))
+              || (id.matches('.*-currency') && value.matches('^"(TWD|JPY)"$'))))
+          || (id.matches('^(flight|lodging|ticket-[1-8]|special-(6|7))-amount$') && value.matches('^(0|[1-9][0-9]{0,9})$'))
+          || (id.matches('^(fx-date|hotel-[1-6]-date)$') && value.matches('^"([0-9]{4}-[0-9]{2}-[0-9]{2})?"$'))
+          || (id.matches('^(fx-source|hotel-[1-6]-(source|breakfast|cancel))$') && value.size() <= 2048);
+      }
+      allow read: if member();
+      allow create, update: if member()
+        && request.resource.data.keys().hasOnly(['value','author','modified'])
+        && request.resource.data.author == request.auth.uid
+        && request.resource.data.modified == request.time
+        && request.resource.data.value is string && validEntry();
+    }
     match /fields/{id} {
       allow read: if request.auth != null && member();
       allow create, update: if request.auth != null && member()

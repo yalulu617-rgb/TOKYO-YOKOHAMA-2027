@@ -1,5 +1,5 @@
 const prefix='ajisai:'+self.registration.scope+':';
-const cacheName=prefix+'5c522df400479fadbc8b';
+const cacheName=prefix+'7c708f584b1a400703e9';
 const files=["access.css","art.js","boot.js","cloud.js","config.js","day-1.webp","day-2.webp","day-3.webp","day-4.webp","day-5.webp","day-6.webp","device.js","expense.js","google.js","hero.webp","icon-192.png","icon-512.png","index.html","integrity.js","manifest.webmanifest","membership.js","outbox.js","style.css","vault.js","version.js","view-state.js","release.json"].map(file=>new URL(file,self.registration.scope).href);
 const authFiles=['firebase-app.js','firebase-auth.js'].map(file=>'https://www.gstatic.com/firebasejs/13.4.0/'+file);
 const entry=new URL('index.html',self.registration.scope).href;
@@ -14,7 +14,7 @@ self.addEventListener('install',event=>{
     const cache=await caches.open(cacheName);
     await Promise.all(files.map(async url=>{
       const staging=new URL(url);
-      staging.searchParams.set('app-build','5c522df400479fadbc8b');
+      staging.searchParams.set('app-build','7c708f584b1a400703e9');
       const response=await fetch(staging,{cache:'no-store'});
       if(!response.ok||url===entry&&!await isCurrentShell(response))throw Error('Incomplete App release');
       await cache.put(url,response);

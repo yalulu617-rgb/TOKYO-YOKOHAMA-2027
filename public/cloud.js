@@ -27,14 +27,21 @@ export async function seed(){
   if(await digest(payload)!==releaseId)throw Error('私人旅行資料校驗失敗，請聯絡管理員。');
   return JSON.parse(payload);
 }
-export async function changes(since){
-  const structuredQuery={from:[{collectionId:'fields'}],orderBy:[{field:{fieldPath:'modified'},direction:'ASCENDING'}]};
+export const fieldCollection=id=>id.startsWith('planning~')?'planning':'fields';
+async function collectionChanges(collection,since){
+  const structuredQuery={from:[{collectionId:collection}],orderBy:[{field:{fieldPath:'modified'},direction:'ASCENDING'}]};
   if(since)structuredQuery.where={fieldFilter:{field:{fieldPath:'modified'},op:'GREATER_THAN_OR_EQUAL',value:{timestampValue:since}}};
   const rows=await request(api()+':runQuery',{method:'POST',headers:await headers(),body:JSON.stringify({structuredQuery})});
-  return rows.filter(r=>r.document).map(({document:d})=>({id:d.name.split('/').pop(),value:JSON.parse(d.fields.value.stringValue),revision:d.updateTime,time:d.fields.modified.timestampValue,author:d.fields.author?.stringValue}));
+  return rows.filter(r=>r.document).map(({document:d})=>({id:(collection==='planning'?'planning~':'')+d.name.split('/').pop(),value:JSON.parse(d.fields.value.stringValue),revision:d.updateTime,time:d.fields.modified.timestampValue,author:d.fields.author?.stringValue}));
+}
+export async function changes(cursor,planning=true){
+  const current=typeof cursor==='string'?{fields:cursor}:cursor||{};
+  const collections=planning?['fields','planning']:['fields'];
+  return (await Promise.all(collections.map(collection=>collectionChanges(collection,current[collection])))).flat();
 }
 export async function put(id,entry){
-  const name=root()+'/fields/'+id;
+  const collection=fieldCollection(id);
+  const name=root()+'/'+collection+'/'+(collection==='planning'?id.slice(9):id);
   const write={update:{name,fields:{value:{stringValue:JSON.stringify(entry.value)},author:{stringValue:auth.uid}}},updateTransforms:[{fieldPath:'modified',setToServerValue:'REQUEST_TIME'}],currentDocument:entry.base?{updateTime:entry.base}:{exists:false}};
   const result=await request(api()+':commit',{method:'POST',headers:await headers(),body:JSON.stringify({writes:[write]})});
   return result.writeResults[0].updateTime;

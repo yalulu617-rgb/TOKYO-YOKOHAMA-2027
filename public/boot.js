@@ -71,7 +71,8 @@ function lockTab(){
     }).catch(reject);
   });
 }
-function snapshot(){return Object.fromEntries(Object.entries({...session.fields,...session.pending}).map(([id,x])=>[id,x.value]))}
+function snapshot(){return Object.fromEntries(Object.entries({...session.fields,...session.pending})
+  .filter(([id])=>!legacyRenderer||cloud.fieldCollection(id)!=='planning').map(([id,x])=>[id,x.value]))}
 function store(){
   if(!vault)return Promise.resolve();
   const copy=structuredClone(session);
@@ -145,14 +146,15 @@ async function sync(){
   let drainMore=false;
   const initialPending=new Set(Object.keys(session.pending));
   try{
-    const rows=await cloud.changes(session.cursor);
+    const rows=await cloud.changes(session.cursor,!legacyRenderer);
+    if(!session.cursor||typeof session.cursor==='string')session.cursor={fields:session.cursor};
     let changed=false;
     for(const row of rows){
       if(!window.validField(row.id,row.value))throw Error('雲端欄位異常，請核對備份。');
       if(session.fields[row.id]?.revision!==row.revision){
         session.fields[row.id]=row;changed=true;
       }
-      session.cursor=row.time;
+      session.cursor[cloud.fieldCollection(row.id)]=row.time;
     }
     await outbox.flush();
     for(const id of initialPending)if(!session.pending[id])session.acked.add(id);

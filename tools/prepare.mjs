@@ -9,7 +9,10 @@ const data=JSON.parse(await read('private/source/data.json'));
 const ids=(rows,key)=>new Set(rows.map(row=>row[key])).size===rows.length&&rows.every(row=>row[key]);
 if(!ids(data.days,'id')||!ids(data.timeline,'id')||!ids(data.hotels,'rank')||
    !data.timeline.every(row=>data.days.some(day=>day.id===row.day)))throw Error('Invalid itinerary IDs or links');
-const renderer=await read('private/source/app.js');
+const source=await read('private/source/app.js');
+const marker='/* @planning-tools */';
+if(!source.includes(marker))throw Error('Missing planner integration marker');
+const renderer=source.replace(marker,await read('private/source/planning.js'));
 const layout=(await read('private/source/index.html')).split('<body>')[1].split('<script')[0];
 const payload=JSON.stringify({renderer,layout,data});
 if(Buffer.byteLength(payload)>950000)throw Error('Release exceeds document limit');

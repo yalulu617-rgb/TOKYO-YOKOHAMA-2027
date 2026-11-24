@@ -9,3 +9,40 @@ html:has(.itinerary-tabs){overflow-anchor:none}
   #main .itinerary-tabs .day-tab{flex:0 0 7rem;min-height:48px;text-align:left}
   #account #syncStatus{flex:1 1 100%;min-width:0;margin:0}
 }
+
+:root {
+  --hydrangea: #E8DDF5;
+  --harbor: #CFE2F5;
+  --summer-leaf: #DDE9D5;
+  --paper: #FFF7E9;
+  --petal: #EFD6E5;
+  --travel-text: #57476F;
+}
+.planner-grid, .hotel-controls, .hotel-quote { display: grid; gap: .8rem; }
+.planner-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr)); }
+.hotel-controls { grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); align-items: end; }
+.hotel-quote { grid-template-columns: repeat(auto-fit, minmax(min(100%, 10rem), 1fr)); align-items: end; }
+.planner-field { display: grid; min-width: 0; gap: .3rem; font-weight: 650; color: var(--travel-text); }
+.planner-field input, .planner-field select, .hotel-controls select {
+  min-width: 0; width: 100%; min-height: 44px; box-sizing: border-box;
+  border: 1px solid #bcb0cf; border-radius: .7rem; padding: .5rem .65rem; background: white; color: var(--travel-text); font: inherit;
+}
+.option-line { display: inline-flex; align-items: center; gap: .4rem; min-height: 44px; }
+.option-line input { accent-color: #77569a; width: 1.15rem; height: 1.15rem; flex: none; }
+.hotel-links { display: flex; flex-wrap: wrap; gap: .4rem .85rem; align-items: center; }
+.hotel-links a { display: inline-flex; align-items: center; min-height: 44px; overflow-wrap: anywhere; }
+.hotel-controls, .booking-card, .comparison-card { color: var(--travel-text); }
+.booking-card { border-top: 3px solid var(--harbor); }
+.hotel-controls { background: var(--paper); }
+.hotel-card:nth-of-type(3n+1) { border-top: 3px solid var(--hydrangea); }
+.hotel-card:nth-of-type(3n+2) { border-top: 3px solid var(--summer-leaf); }
+.hotel-card:nth-of-type(3n) { border-top: 3px solid var(--petal); }
+@media (max-width: 767px) {
+  #main { font-size: 16px; min-width: 0; overflow-wrap: anywhere; }
+  #main :is(button, summary, select, input:not([type=checkbox])) { min-height: 44px; }
+  #main :is(input,select,textarea) { font-size: 16px; }
+  .bottom-nav button { min-height: 44px; min-width: 0; }
+  .bottom-nav button span:last-child { font-size: .72rem; }
+  .bottom-nav button span:first-child { font-size: 1.15rem; }
+  .day-tabs { scrollbar-width: thin; overscroll-behavior-inline: contain; }
+}

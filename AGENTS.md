@@ -28,3 +28,9 @@
 - SW 啟用前須完成整套版本快取並核對首頁。保留已發布的離線 renderer 相容清單，復線後先確認待傳修改安全，再切換新版。測試時須等正式 active controller 與新版快取內實際首頁同時成立。Playwright 的非同步輪詢條件應由測試端反覆 await 布林結果。
 - 執行 `node tools/test-view-state.mjs` 和 `node tools/test-outbox.mjs`。瀏覽器回歸須涵蓋 Day 2～6 各兩輪背景讀取、另一帳號修改、搜尋及展開、寫入受阻時立即重開首畫面、背景零捲動及前景恢復、真實前一版 SW 升級與舊離線副本復線補送。模擬和各實機的驗收需分欄記錄。
 - 若另經授權要回滾，可從穩定標籤重新發布其公開成品。先唯讀確認對應的 Firestore 私人發布文件仍存在。回滾程式時保留現有雲端欄位、登入及規則。
+
+## V2.2.0 出發前規劃
+
+本機 LUNA-CREATIVE-SKILLS Registry 1.2.1。web-app-starter 1.2.0 用於共用行動導覽、比較卡片及欄位；pwa-offline-sync 1.1.1 延用既有自動同步、加密佇列與瀏覽狀態；release-verification 1.1.1 要求封存基準、獨立模擬器及正式唯讀核對；travel-data-schema 1.1.0 保留六天、54 個原節點和六間飯店的原始內容及 ID；travel-app-adapter 1.1.1 將推薦排序和原始資料順序分離。
+
+新增族人共用欄位存於 /planning，保留 /fields 的路徑、值及規則。舊版回滾可重新發布 v2.1.1 的公開成品，原私人 release 與既有雲端欄位繼續保留。V2.2.0 再發布後，新增規劃欄位會重新顯示。規劃來源與舊資料均經 prepare 封入私人 release。
