@@ -1,11 +1,23 @@
-import {googleLogin,logout} from './google.js';
+import {googleLogin,restoreLogin,watchLogin,logout} from './google.js';
 import {memberPanel,requestAccess} from './membership.js';
 import * as cloud from './cloud.js';
 import {openVault,forgetVault,hasVault,digest} from './vault.js';
 import {rendererHash,layoutHash} from './integrity.js';
 const $=id=>document.getElementById(id);
 const status=text=>$('syncStatus').textContent=text;
-let session,vault,onlineLogin=false,busy=false,persist=Promise.resolve(),ready=false,locked=false;
+let session,vault,onlineLogin=false,busy=false,persist=Promise.resolve(),ready=false,locked=false,starting=false,unwatch,chooseAccount=false;
+const logoutKey='ajisai.2027.logout-pending';
+function readFlag(key){try{return localStorage.getItem(key)}catch{return null}}
+const deniedKey=uid=>'ajisai.2027.access-denied.'+uid;
+function markDenied(uid,denied){
+  try{if(denied)localStorage.setItem(deniedKey(uid),'1');else localStorage.removeItem(deniedKey(uid))}catch{}
+}
+function ensureAccess(uid){
+  if(readFlag(deniedKey(uid)))throw Error('此帳號無法開啟離線副本，請連線重新驗證旅行權限。');
+}
+function invalidLogin(error){
+  return error.http===401||['auth/user-token-expired','auth/user-disabled','auth/invalid-user-token','auth/user-not-found','auth/id-token-revoked'].includes(error.code);
+}
 let tabRelease;
 function lockTab(){
   return new Promise((resolve,reject)=>{
@@ -49,7 +61,8 @@ function explain(error){
 }
 async function sync(){
   if(!ready||locked||busy)return;
-  if(!onlineLogin||!navigator.onLine){status('離線中 · '+Object.keys(session.pending).length+' 項待同步'+(!onlineLogin?' · 連網後請重新登入':''));return}
+  if(!navigator.onLine){status('離線中 · '+Object.keys(session.pending).length+' 項待同步');return}
+  if(!onlineLogin){await reconnect();return}
   busy=true;status('同步中…');
   try{
     const rows=await cloud.changes(session.cursor);
@@ -82,7 +95,11 @@ async function sync(){
     status(pending?'等待同步 '+pending+' 項':'已同步'+(latest?' · 最後修改 '+new Date(latest).toLocaleString('zh-TW',{timeZone:'Asia/Tokyo'})+' JST':''));
     if(pending)schedule();
   }catch(error){
-    if(error.http===403){locked=true;ready=false;document.body.replaceChildren(document.createTextNode('旅行存取權限已撤銷，請重新登入。'));await persist.catch(()=>{});forgetVault();location.reload();return}
+    if(error.http===403||invalidLogin(error)){
+      if(error.http===403)markDenied(session.uid,true);
+      await endSession('旅行權限或登入已失效，請重新登入。');
+      return;
+    }
     status('尚未同步 · '+explain(error));
     if(error.http===409||error.status==='FAILED_PRECONDITION')schedule();
   }finally{busy=false}
@@ -99,46 +116,164 @@ async function mount(){
   $('gate').hidden=true;$('account').hidden=false;ready=true;
   await sync();
 }
-$('signin').addEventListener('submit',async e=>{
-  e.preventDefault();if(busy||ready)return;
-  const form=e.currentTarget;
-  const password=form.password.value;
+const form=$('signin');
+$('offlineGate').hidden=!hasVault();
+function gateBusy(value){
+  starting=value;
+  for(const button of form.querySelectorAll('button'))button.disabled=value;
+}
+async function endSession(message,clearVault=false,signOut=true){
+  locked=true;ready=false;unwatch?.();clearTimeout(timer);
+  $('original').replaceChildren();$('account').hidden=true;$('gate').hidden=false;
+  window.TRIP_DATA=null;window.travelBridge=null;
+  await persist.catch(()=>{});
+  if(clearVault)forgetVault();
+  if(signOut){
+    try{localStorage.setItem(logoutKey,'1')}catch{}
+    try{
+      await logout();
+      try{localStorage.removeItem(logoutKey)}catch{}
+    }catch(error){
+      if(!readFlag(logoutKey)){
+        $('gateStatus').textContent='無法清除登入狀態，請重新連線後再試。';
+        return;
+      }
+      message='已關閉手帳。重新連網後會完成 Firebase 登出。';
+    }
+  }
+  try{if(message)sessionStorage.setItem('ajisai.gate-message',message)}catch{}
+  location.reload();
+}
+function monitorLogin(uid){
+  unwatch?.();
+  unwatch=watchLogin(next=>{
+    if(ready&&!locked&&next!==uid)void endSession('登入帳號已變更，請重新驗證。',false,false);
+  });
+}
+async function authorizedPackage(identity,apply=false){
+  cloud.identify(identity);
+  try{
+    const pkg=await cloud.seed();
+    markDenied(identity.uid,false);
+    return pkg;
+  }catch(error){
+    if(error.http===403)markDenied(identity.uid,true);
+    if(error.http===403||error.http===404){
+      $('switchAccount').hidden=false;
+      if(apply)throw Error(await requestAccess(identity));
+      throw Error('這個 Google 帳號目前無法開啟旅行。若要申請，請按 Google 登入。');
+    }
+    throw error;
+  }
+}
+async function openOnline(identity,apply=false){
+  await lockTab();
+  const seed=await authorizedPackage(identity,apply);
+  session={uid:identity.uid,fields:{},pending:{},cursor:null,seed};
+  onlineLogin=true;
+  await mount();
+  if(!ready)return;
+  monitorLogin(identity.uid);
+  await memberPanel(identity.uid).catch(error=>status('成員管理暫時無法載入 · '+explain(error)));
+}
+function gateError(error){
+  $('gateStatus').textContent=explain(error);
+  if(!ready&&!locked){$('original').replaceChildren();tabRelease?.();session=null;vault=null;onlineLogin=false}
+}
+form.addEventListener('submit',async e=>{
+  e.preventDefault();if(starting||busy||ready||locked)return;
   const offline=e.submitter?.name==='offline';
-  const buttons=[...form.querySelectorAll('button')];buttons.forEach(b=>b.disabled=true);
+  gateBusy(true);
   $('gateStatus').textContent='正在驗證…';
   try{
-    if(!offline){
-      if(form.trust.checked&&password.length<10)throw Error('請先設定至少 10 字元的裝置解鎖密語。');
-      const identity=await googleLogin();cloud.identify(identity);
+    if(offline){
       await lockTab();
-      const uid=identity.uid;
-      let pkg;
-      try{pkg=await cloud.seed()}catch(e){if(e.http===403||e.http===404)throw Error(await requestAccess(identity));throw e}
-      vault=form.trust.checked?await openVault('family-vault',password,true):null;
-      session=vault?.value||{uid,fields:{},pending:{},cursor:null};
-      if(session.uid!==uid)throw Error('帳號與離線副本不符。');
-      session.seed=pkg;onlineLogin=true;
-    }else{
-      await lockTab();
-      vault=await openVault('family-vault',password,false);session=vault.value;onlineLogin=false;
-    }
-    form.password.value='';await mount();await store();if(onlineLogin)await memberPanel(session.uid);
-  }catch(err){$('gateStatus').textContent=explain(err);if(!ready){$('original').replaceChildren();tabRelease?.();session=null;vault=null}}
-  finally{buttons.forEach(b=>b.disabled=false)}
+      vault=await openVault('family-vault',form.password.value,false);session=vault.value;
+      ensureAccess(session.uid);
+      await mount();
+    }else await openOnline(await googleLogin(form.remember.checked,chooseAccount),true);
+  }catch(error){gateError(error)}
+  finally{form.password.value='';gateBusy(false)}
 });
-$('retry').onclick=async()=>{
-  if(!onlineLogin && navigator.onLine){await store();location.reload();return}
-  sync();
+$('switchAccount').onclick=async()=>{
+  if(starting)return;
+  gateBusy(true);
+  try{await logout();chooseAccount=true;$('switchAccount').hidden=true;$('gateStatus').textContent='請使用另一個 Google 帳號登入。'}
+  catch(error){gateError(error)}
+  finally{gateBusy(false)}
 };
-if(hasVault())$('signin').elements.trust.checked=true;
+async function reconnect(interactive=false){
+  if(!ready||locked||busy)return;
+  if(onlineLogin||!navigator.onLine){await sync();return}
+  busy=true;
+  status('正在恢復同步…');
+  try{
+    let identity=await restoreLogin();
+    if(!identity&&interactive)identity=await googleLogin(true,true);
+    if(!identity||identity.uid!==session.uid){status('請按同步並登入建立此副本的 Google 帳號。');return}
+    session.seed=await authorizedPackage(identity);
+    onlineLogin=true;monitorLogin(identity.uid);
+    await memberPanel(identity.uid).catch(()=>{});
+  }catch(error){
+    if(readFlag(deniedKey(session.uid))||invalidLogin(error)){await endSession('旅行權限或登入已失效，請重新登入。');return}
+    status('尚未同步 · '+explain(error));
+  }finally{busy=false}
+  if(onlineLogin)await sync();
+}
+$('retry').onclick=()=>reconnect(true);
+$('vaultForm').onsubmit=async event=>{
+  event.preventDefault();
+  if(!ready||locked||busy||!onlineLogin||vault)return;
+  const input=event.currentTarget.elements.password;
+  busy=true;
+  try{
+    const unlocked=await openVault('family-vault',input.value,true);
+    if(unlocked.value?.uid && unlocked.value.uid!==session.uid)throw Error('此離線副本屬於另一個帳號。');
+    if(unlocked.value){
+      for(const [id,entry] of Object.entries(unlocked.value.pending)){
+        if(!window.validField(id,entry.value))throw Error('離線副本的欄位需要先核對。');
+      }
+      for(const [id,entry] of Object.entries(unlocked.value.pending)){
+        if(session.pending[id] && session.pending[id].value!==entry.value &&
+           !confirm('離線副本與目前頁面都有尚未同步的修改：'+id+'。確定保留離線副本的修改？'))continue;
+        session.pending[id]=entry;
+      }
+      // Fetch from the start so recovered edits still use their original conflict bases.
+      session.cursor=null;
+    }
+    vault=unlocked;
+    await store();showRemote();
+    $('vaultStatus').textContent='加密離線副本已解鎖。';
+  }catch(error){$('vaultStatus').textContent=explain(error)}
+  finally{input.value='';busy=false}
+  await sync();
+};
 $('signout').onclick=async()=>{
-  if(busy){status('同步作業處理中，請稍後登出。');return}
-  if(Object.keys(session.pending).length&&!confirm('仍有未同步變更。登出會清除本機副本。若需先匯出備份，請按取消。'))return;
-  locked=true;ready=false;await persist.catch(()=>{});if(vault)forgetVault();await logout();location.reload();
+  if(busy||locked){status('同步或登出處理中，請稍候。');return}
+  if((Object.keys(session.pending).length||(!vault&&hasVault()))&&!confirm('本機可能有尚未同步的修改。登出將清除加密離線副本。若需先解鎖、同步或匯出備份，請按取消。'))return;
+  await endSession('',true);
 };
 window.addEventListener('beforeunload',e=>{if(ready&&!vault&&Object.keys(session.pending).length){e.preventDefault();e.returnValue=''}});
-window.addEventListener('online',sync);window.addEventListener('offline',sync);
+window.addEventListener('online',()=>{if(ready)void reconnect();else if(!starting&&!locked)void resume()});
+window.addEventListener('offline',sync);
 setInterval(()=>{if(!document.hidden)sync()},90000);
 document.addEventListener('visibilitychange',()=>{if(!document.hidden)sync()});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('./sw.js').catch(()=>{$('gateStatus').textContent='此瀏覽器無法啟用離線模式。'});
+async function resume(){
+  gateBusy(true);
+  try{
+    let message;
+    try{message=sessionStorage.getItem('ajisai.gate-message');sessionStorage.removeItem('ajisai.gate-message')}catch{}
+    if(!navigator.onLine){$('gateStatus').textContent='目前離線，可解鎖已建立的加密副本。';return}
+    if(readFlag(logoutKey)){await logout();localStorage.removeItem(logoutKey)}
+    const identity=await restoreLogin();
+    if(identity)await openOnline(identity);
+    else{
+      $('switchAccount').hidden=false;
+      $('gateStatus').textContent=message||'';
+    }
+  }catch(error){gateError(error)}
+  finally{gateBusy(false)}
+}
+void resume();
 

@@ -29,5 +29,9 @@ export async function openVault(email, password, create) {
     localStorage.setItem(name,JSON.stringify({salt:to64(salt),iv:to64(iv),body:to64(encrypted)}));
   }};
 }
-export const hasVault = () => localStorage.getItem(name)!==null;
-export const forgetVault = () => localStorage.removeItem(name);
+export function hasVault(){
+  try{return localStorage.getItem(name)!==null}catch{return false}
+}
+export function forgetVault(){
+  if(hasVault())localStorage.removeItem(name);
+}
